@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Scalar",
+      "hasCanvas": false,
+      "bodyTextLen": 901,
+      "bodyTextHash": "b8c30d49c082f7dd6f9cb6f9e2362d13995aaf163b9a63647e00418d53705680",
+      "bodyTextPrefix": "SCALARLM · CC0 Scalar An agent that trains on its own trace. The",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Scalar",
+      "hasCanvas": false,
+      "bodyTextLen": 890,
+      "bodyTextHash": "5009335ddcb1c7dd053f56c8c6d20de8c8b11fcfe79a82400253dd496d484e57",
+      "bodyTextPrefix": "SCALARLM · CC0 Scalar An agent that trains on its own trace. The",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}
