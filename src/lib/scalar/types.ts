@@ -5,6 +5,15 @@ export type Exemplar = {
   completion: string;
 };
 
+export type CheckpointStep = {
+  version: number;
+  at: number;
+  reward: number;
+  preset: PresetId;
+  added: string[];
+  banned: string[];
+};
+
 export type Checkpoint = {
   version: number;
   updatedAt: number | null;
@@ -12,6 +21,8 @@ export type Checkpoint = {
   avoid: string[];
   exemplars: Exemplar[];
   scores: number[];
+  history: CheckpointStep[];
+  dataset: Exemplar[];
 };
 
 export type TracePhase = "infer" | "tool" | "reward" | "train";
@@ -28,6 +39,7 @@ export type Job = {
   at: number;
   preset: PresetId;
   mission: string;
+  epoch?: number;
   reward: number;
   rubric: string;
   deliverable: string;

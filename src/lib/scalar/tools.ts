@@ -1,50 +1,136 @@
 type Sev = "high" | "med";
 
-const RULES: { re: RegExp; sev: Sev; msg: string }[] = [
-  { re: /AKIA[0-9A-Z]{16}/, sev: "high", msg: "looks like an AWS access key id" },
-  { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, sev: "high", msg: "private key material" },
-  { re: /innerHTML\s*=/, sev: "high", msg: "innerHTML assignment (markup injection)" },
-  { re: /dangerouslySetInnerHTML/, sev: "high", msg: "unsanitized HTML render" },
-  { re: /document\.write\s*\(/, sev: "high", msg: "document.write" },
-  { re: /\beval\s*\(/, sev: "high", msg: "eval" },
-  { re: /SELECT[\s\S]{0,80}\+/, sev: "high", msg: "SQL assembled with string concatenation" },
-  { re: /createHash\(\s*["']md5["']\s*\)/i, sev: "high", msg: "MD5 used as a cryptographic hash" },
-  { re: /createHash\(\s*["']sha1["']\s*\)/i, sev: "med", msg: "SHA-1 used as a cryptographic hash" },
-  { re: /password\s*[:=]\s*["'][^"']+["']/i, sev: "high", msg: "hardcoded password" },
-  { re: /child_process|execSync\s*\(/, sev: "high", msg: "shell execution" },
-  { re: /log(?:s|ging)? the (full )?body/i, sev: "high", msg: "full request body is logged" },
+// `named` is how a deliverable has to refer to the finding for the grader to count it.
+const RULES: { re: RegExp; sev: Sev; msg: string; named: RegExp }[] = [
+  {
+    re: /AKIA[0-9A-Z]{16}/,
+    sev: "high",
+    msg: "looks like an AWS access key id",
+    named: /AKIA|access key|aws|credential|secret/i,
+  },
+  {
+    re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+    sev: "high",
+    msg: "private key material",
+    named: /private key/i,
+  },
+  {
+    re: /innerHTML\s*=/,
+    sev: "high",
+    msg: "innerHTML assignment (markup injection)",
+    named: /innerHTML|xss|markup injection/i,
+  },
+  {
+    re: /dangerouslySetInnerHTML/,
+    sev: "high",
+    msg: "unsanitized HTML render",
+    named: /dangerouslySetInnerHTML|xss|unsanitized/i,
+  },
+  {
+    re: /document\.write\s*\(/,
+    sev: "high",
+    msg: "document.write",
+    named: /document\.write|xss/i,
+  },
+  {
+    re: /\beval\s*\(/,
+    sev: "high",
+    msg: "eval",
+    named: /\beval\b|code injection/i,
+  },
+  {
+    re: /SELECT[\s\S]{0,80}\+/,
+    sev: "high",
+    msg: "SQL assembled with string concatenation",
+    named: /sql|concat/i,
+  },
+  {
+    re: /createHash\(\s*["']md5["']\s*\)/i,
+    sev: "high",
+    msg: "MD5 used as a cryptographic hash",
+    named: /md5/i,
+  },
+  {
+    re: /createHash\(\s*["']sha1["']\s*\)/i,
+    sev: "med",
+    msg: "SHA-1 used as a cryptographic hash",
+    named: /sha-?1/i,
+  },
+  {
+    re: /password\s*[:=]\s*["'][^"']+["']/i,
+    sev: "high",
+    msg: "hardcoded password",
+    named: /password/i,
+  },
+  {
+    re: /child_process|execSync\s*\(/,
+    sev: "high",
+    msg: "shell execution",
+    named: /shell|exec|command injection/i,
+  },
+  {
+    re: /log(?:s|ging)? the (full )?body/i,
+    sev: "high",
+    msg: "full request body is logged",
+    named: /log/i,
+  },
   {
     re: /signature[^.]{0,80}(optional|only if)/i,
     sev: "high",
     msg: "signature verification is conditional",
+    named: /signature/i,
   },
-  { re: /not dedup/i, sev: "med", msg: "retries are not deduplicated" },
+  {
+    re: /not dedup/i,
+    sev: "med",
+    msg: "retries are not deduplicated",
+    named: /dedup|replay|idempot/i,
+  },
   {
     re: /credit the user id in the json/i,
     sev: "high",
     msg: "trusts a user id supplied in the body",
+    named: /user ?id|body/i,
   },
-  { re: /endpoint is HTTP/i, sev: "med", msg: "cleartext HTTP on the hop" },
-  { re: /card metadata|primary account|\bPAN\b/i, sev: "high", msg: "payment card data in scope" },
+  {
+    re: /endpoint is HTTP/i,
+    sev: "med",
+    msg: "cleartext HTTP on the hop",
+    named: /http\b|cleartext|tls/i,
+  },
+  {
+    re: /card metadata|primary account|\bPAN\b/i,
+    sev: "high",
+    msg: "payment card data in scope",
+    named: /card|pan\b|pci/i,
+  },
 ];
 
-export function scanArtifact(artifact: string): string {
-  const text = artifact.trim();
-  if (!text) return "No artifact attached. There is nothing to scan.";
-  const lines = text.split("\n");
-  const hits: string[] = [];
+export type ScanHit = { sev: Sev; line: number; msg: string; named: RegExp };
+
+export function scanHits(artifact: string): ScanHit[] {
+  const lines = artifact.trim().split("\n");
+  const hits: ScanHit[] = [];
   for (const rule of RULES) {
-    for (let i = 0; i < lines.length; i++) {
-      if (rule.re.test(lines[i])) {
-        hits.push(`${rule.sev}  L${i + 1}  ${rule.msg}`);
-        break;
-      }
-    }
+    const index = lines.findIndex((line) => rule.re.test(line));
+    if (index >= 0)
+      hits.push({
+        sev: rule.sev,
+        line: index + 1,
+        msg: rule.msg,
+        named: rule.named,
+      });
   }
+  return hits;
+}
+
+export function scanArtifact(artifact: string): string {
+  if (!artifact.trim()) return "No artifact attached. There is nothing to scan.";
+  const hits = scanHits(artifact);
   if (!hits.length) return "Scan finished. No rule matched.";
-  const high = hits.filter((h) => h.startsWith("high")).length;
+  const high = hits.filter((hit) => hit.sev === "high").length;
   const med = hits.length - high;
-  return `${high} high, ${med} med\n${hits.join("\n")}`;
+  return `${high} high, ${med} med\n${hits.map((hit) => `${hit.sev}  L${hit.line}  ${hit.msg}`).join("\n")}`;
 }
 
 class ExprParser {
@@ -74,7 +160,7 @@ class ExprParser {
 
   private term(): number {
     let value = this.unary();
-    while ("*/%".includes(this.s[this.i] ?? "")) {
+    while (this.s[this.i] === "*" || this.s[this.i] === "/" || this.s[this.i] === "%") {
       const op = this.s[this.i++];
       const right = this.unary();
       if ((op === "/" || op === "%") && right === 0) throw new Error("div0");
@@ -126,8 +212,9 @@ export function arithmetic(expr: string): string {
   }
 }
 
+const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const PITCH: Record<string, number> = {};
-["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"].forEach((name, i) => {
+NAMES.forEach((name, i) => {
   PITCH[name] = i;
 });
 
@@ -152,7 +239,9 @@ function parseChord(raw: string): { name: string; root: number; quality: Quality
   if (root === undefined) return null;
   const rest = match[2].toLowerCase();
   let quality: Quality = "maj";
-  if (rest.startsWith("dim") || rest.startsWith("o")) quality = "dim";
+  // "maj7" starts with "m" too, so it has to be ruled out before minor.
+  if (rest.startsWith("maj")) quality = "maj";
+  else if (rest.startsWith("dim") || rest.startsWith("o")) quality = "dim";
   else if (rest.startsWith("aug") || rest.startsWith("+")) quality = "aug";
   else if (rest.startsWith("m") || rest.startsWith("-")) quality = "min";
   else if (rest.includes("7")) quality = "7";
@@ -192,7 +281,11 @@ export function musicCheck(progression: string): string {
     const prev = chords[i - 1];
     const next = chords[i];
     const up = (next.root - prev.root + 12) % 12;
-    if ((up === 7 || up === 5) && prev.quality === next.quality && (prev.quality === "maj" || prev.quality === "min")) {
+    if (
+      (up === 7 || up === 5) &&
+      prev.quality === next.quality &&
+      (prev.quality === "maj" || prev.quality === "min")
+    ) {
       parallels.push(
         `parallel fifth motion ${prev.name} → ${next.name} (${intervalName(up)}, both ${prev.quality})`,
       );
@@ -201,17 +294,55 @@ export function musicCheck(progression: string): string {
   if (parallels.length) lines.push(...parallels.map((line) => `parallel  ${line}`));
   else lines.push("parallel  none at a perfect fifth between equal qualities");
 
-  const joined = chords.map((chord) => chord.name).join(" ");
-  if (/^Am F C G\b/.test(joined)) {
-    lines.push("cadence  Am F C G is the axis loop. It reads bright and familiar, not uneasy.");
+  const tonic = chords[0];
+  const minorKey = tonic.quality === "min";
+  const key = `${NAMES[tonic.root]} ${minorKey ? "minor" : "major"}`;
+  lines.push(`key  heard as ${key} (first chord is home)`);
+
+  for (let i = 0; i + 4 <= chords.length; i++) {
+    const window = chords.slice(i, i + 4);
+    const minors = window.filter((chord) => chord.quality === "min");
+    const majors = window.filter((chord) => chord.quality === "maj");
+    if (minors.length !== 1 || majors.length !== 3) continue;
+    const vi = minors[0].root;
+    const want = [3, 8, 10].map((step) => (vi + step) % 12).sort();
+    const got = majors.map((chord) => chord.root).sort();
+    if (want.every((root, index) => root === got[index])) {
+      lines.push(
+        `cadence  ${window.map((chord) => chord.name).join(" ")} is the axis loop. It reads bright and familiar, not uneasy.`,
+      );
+      break;
+    }
   }
+
   const last = chords[chords.length - 1];
-  if (last.name === "G" || last.name === "Gmaj") {
-    lines.push(
-      "cadence  ends on G, a major dominant. That landing is neat and pulls toward a triumphant Am.",
-    );
+  const fromTonic = (last.root - tonic.root + 12) % 12;
+  if (last.quality === "maj" || last.quality === "7") {
+    if (fromTonic === 7) {
+      lines.push(
+        `cadence  ends on ${last.name}, the major dominant. It pulls hard and neatly back to ${tonic.name}.`,
+      );
+    } else if (minorKey && fromTonic === 10) {
+      lines.push(
+        `cadence  ends on ${last.name}, the major bVII. It is a bright, triumphant rock landing.`,
+      );
+    }
   }
-  lines.push("substitution  replace the final G with Dm. It stays in A natural minor and lands less neatly.");
+
+  const sub = minorKey
+    ? {
+        name: `${NAMES[(tonic.root + 5) % 12]}m`,
+        why: `It is iv, stays in ${key}, and lands less neatly.`,
+      }
+    : {
+        name: `${NAMES[(tonic.root + 9) % 12]}m`,
+        why: `It is vi, a deceptive landing that stays in ${key}.`,
+      };
+  if (last.root === (minorKey ? (tonic.root + 5) % 12 : (tonic.root + 9) % 12)) {
+    lines.push(`substitution  replace ${chords[1].name} with ${sub.name}. ${sub.why}`);
+  } else {
+    lines.push(`substitution  replace the final ${last.name} with ${sub.name}. ${sub.why}`);
+  }
   return lines.join("\n");
 }
 
@@ -238,11 +369,7 @@ export function regexScan(artifact: string, pattern: string, flags: string): str
   return hits.join("\n");
 }
 
-export function runTool(
-  name: string,
-  args: Record<string, unknown>,
-  artifact: string,
-): string {
+export function runTool(name: string, args: Record<string, unknown>, artifact: string): string {
   if (name === "scan_artifact") return scanArtifact(artifact);
   if (name === "arithmetic") return arithmetic(String(args.expr ?? ""));
   if (name === "music_check") {
