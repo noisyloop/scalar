@@ -1,4 +1,4 @@
-import type { Checkpoint, Exemplar } from "@/lib/scalar/types";
+import type { Checkpoint, Exemplar, PresetId } from "@/lib/scalar/types";
 
 export const EMPTY_CHECKPOINT: Checkpoint = {
   version: 0,
@@ -7,7 +7,19 @@ export const EMPTY_CHECKPOINT: Checkpoint = {
   avoid: [],
   exemplars: [],
   scores: [],
+  history: [],
+  dataset: [],
 };
+
+// Checkpoints saved before history and dataset existed load with empty ones.
+export function normalizeCheckpoint(value: Partial<Checkpoint> | null | undefined): Checkpoint {
+  return {
+    ...EMPTY_CHECKPOINT,
+    ...value,
+    history: Array.isArray(value?.history) ? value.history : [],
+    dataset: Array.isArray(value?.dataset) ? value.dataset : [],
+  };
+}
 
 function dedupe(items: string[], limit: number) {
   const seen = new Set<string>();
@@ -30,6 +42,8 @@ export function nextCheckpoint(
     lessons: string[];
     avoid: string[];
     exemplar: Exemplar | null;
+    trainRow: Exemplar;
+    preset: PresetId;
     at: number;
   },
 ): Checkpoint {
@@ -42,12 +56,28 @@ export function nextCheckpoint(
       ].slice(0, 3)
     : prev.exemplars;
 
+  const lessons = dedupe([...patch.lessons, ...prev.lessons], 12);
+  const avoid = dedupe([...patch.avoid, ...prev.avoid], 8);
+  const version = prev.version + 1;
+
   return {
-    version: prev.version + 1,
+    version,
     updatedAt: patch.at,
-    lessons: dedupe([...patch.lessons, ...prev.lessons], 12),
-    avoid: dedupe([...patch.avoid, ...prev.avoid], 8),
+    lessons,
+    avoid,
     exemplars,
-    scores: [...prev.scores, patch.reward].slice(-12),
+    scores: [...prev.scores, patch.reward].slice(-24),
+    history: [
+      ...prev.history,
+      {
+        version,
+        at: patch.at,
+        reward: patch.reward,
+        preset: patch.preset,
+        added: lessons.filter((item) => !prev.lessons.includes(item)),
+        banned: avoid.filter((item) => !prev.avoid.includes(item)),
+      },
+    ].slice(-24),
+    dataset: [...prev.dataset, patch.trainRow].slice(-64),
   };
 }

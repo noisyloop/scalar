@@ -3,7 +3,15 @@ import { grade } from "@/lib/scalar/grade";
 import { runTool } from "@/lib/scalar/tools";
 import type { Exemplar, LoopRequest, LoopResult, PresetId, TraceEvent } from "@/lib/scalar/types";
 
-const MODEL = "grok-4.5";
+// Any OpenAI-compatible endpoint works, including a ScalarLM deployment (vLLM under the hood).
+// Without overrides the loop runs on xAI.
+function llmConfig() {
+  const apiKey = process.env.SCALAR_LLM_API_KEY || process.env.XAI_API_KEY || "";
+  const baseUrl = (process.env.SCALAR_LLM_BASE_URL || "https://api.x.ai/v1").replace(/\/+$/, "");
+  const model = process.env.SCALAR_LLM_MODEL || "grok-4.5";
+  const ready = Boolean(apiKey) || Boolean(process.env.SCALAR_LLM_BASE_URL);
+  return { apiKey, baseUrl, model, ready };
+}
 
 const PRESETS = new Set<PresetId>(["review", "threat", "plan", "harmony"]);
 
@@ -128,10 +136,9 @@ function systemPrompt(input: LoopRequest) {
   const avoid = input.checkpoint.avoid.length
     ? input.checkpoint.avoid.map((item) => `- ${item}`).join("\n")
     : "- (none)";
-  const prior = input.checkpoint.exemplars[0];
-  const example = prior
-    ? `\nPRIOR GOOD FINISH\nMission: ${prior.prompt}\nDeliverable: ${prior.completion}\n`
-    : "";
+  const example = input.checkpoint.exemplars
+    .map((prior) => `\nPRIOR GOOD FINISH\nMission: ${prior.prompt}\nDeliverable: ${prior.completion}\n`)
+    .join("");
   return `You are the Scalar agent. A checkpoint from the last training step is hot-loaded below. Obey it over your defaults.
 
 CHECKPOINT v${input.checkpoint.version}
@@ -154,22 +161,21 @@ function userPrompt(input: LoopRequest) {
 }
 
 async function complete(messages: ChatMessage[], tools: boolean, maxTokens: number) {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) throw new Error("AI is not available in this environment.");
+  const { apiKey, baseUrl, model, ready } = llmConfig();
+  if (!ready) throw new Error("AI is not available in this environment.");
   const body: Record<string, unknown> = {
-    model: MODEL,
+    model,
     temperature: tools ? 0.3 : 0.2,
     max_tokens: maxTokens,
     messages,
   };
   if (tools) body.tools = TOOLS;
 
-  const res = await fetch("https://api.x.ai/v1/chat/completions", {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers,
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(45000),
   });
@@ -227,6 +233,11 @@ function strings(value: unknown, limit: number) {
 function event(phase: TraceEvent["phase"], title: string, body: string): TraceEvent {
   return { id: crypto.randomUUID(), phase, title, body };
 }
+
+export const getLoopStatus = createServerFn({ method: "GET" }).handler(async () => {
+  const { model, ready } = llmConfig();
+  return { ready, model };
+});
 
 export const runClosedLoop = createServerFn({ method: "POST" })
   .validator((input: LoopRequest) => input)
@@ -311,14 +322,10 @@ export const runClosedLoop = createServerFn({ method: "POST" })
           continue;
         }
 
-        if (!called.includes(need)) {
-          const fallbackArgs =
-            need === "arithmetic"
-              ? { expr: "(25*5)-150" }
-              : need === "music_check"
-                ? { progression: clean.artifact || "Am F C G" }
-                : {};
-          const result = runTool(need, fallbackArgs, clean.artifact);
+        // The runtime can only stand in for tools whose input it already has. Arithmetic needs an
+        // expression from the model, so a run that never calls it keeps its text and takes the cap.
+        if (!called.includes(need) && need !== "arithmetic" && clean.artifact.trim()) {
+          const result = runTool(need, {}, clean.artifact);
           called.push(need);
           toolBodies.push(result);
           events.push(event("tool", `Tool · ${need}`, result));
@@ -400,6 +407,7 @@ avoid: at most 1. exemplar fields can be empty.`,
       preset: clean.preset,
       called,
       deliverable,
+      artifact: clean.artifact,
       toolText,
       modelReward,
       modelLessons,
@@ -438,7 +446,7 @@ avoid: at most 1. exemplar fields can be empty.`,
 
     return {
       ok: true,
-      model: MODEL,
+      model: llmConfig().model,
       deliverable,
       events,
       reward: graded.reward,
