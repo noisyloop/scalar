@@ -3,6 +3,10 @@
 An agent that trains on its own trace. The next inference loads the checkpoint. Built around the
 generate → train → generate contract of [ScalarLM](https://github.com/tensorwavecloud/ScalarLM).
 
+![Three training epochs on the Review mission: the reward climbs from 0.50 to 0.94 as each run loads the lesson the last one wrote](screenshots/demo.gif)
+
+<sub>Recorded with a scripted demo policy, not a live model, so the run is reproducible.</sub>
+
 Each epoch is one closed loop:
 
 1. **Infer.** The model works a mission with deterministic tools (`scan_artifact`, `arithmetic`,
